@@ -68,7 +68,7 @@ with st.sidebar:
 @st.cache_resource(show_spinner="🔧 임베딩 모델 로딩 중... (최초 1회 약 1~2분)")
 def load_embedding_model():
     from sentence_transformers import SentenceTransformer
-    return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    return SentenceTransformer('paraphrase-multilingual-MiniLM-L3-v2')
 
 
 @st.cache_resource(show_spinner="📚 매뉴얼 처리 및 인덱싱 중... (최초 1회 약 2~3분)")
@@ -97,7 +97,7 @@ def build_knowledge_base():
         matches = sum(1 for p in SKIP_PATTERNS if re.search(p, chunk, re.IGNORECASE))
         return matches >= 2
     
-    def chunk_filtered(text, size=1200, overlap=200):
+    def chunk_filtered(text, size=2000, overlap=100):
         chunks = []
         start = 0
         while start < len(text):
@@ -107,7 +107,7 @@ def build_knowledge_base():
             start += size - overlap
         return chunks
     
-    def chunk_simple(text, size=1200, overlap=200):
+    def chunk_simple(text, size=2000, overlap=100):
         chunks = []
         start = 0
         while start < len(text):
