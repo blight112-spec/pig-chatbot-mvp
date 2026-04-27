@@ -143,7 +143,7 @@ def build_knowledge_base():
         
         body, appendix = extract_with_sections(str(pdf_path))
         body_chunks = chunk_filtered(body)
-        appendix_chunks = chunk_simple(appendix)
+        appendix_chunks = []
         
         for i, c in enumerate(body_chunks):
             all_chunks.append(c)
@@ -168,7 +168,7 @@ def build_knowledge_base():
     
     # 임베딩
     embed_model = load_embedding_model()
-    embeddings = embed_model.encode(all_chunks, show_progress_bar=False, batch_size=32)
+    embeddings = embed_model.encode(all_chunks, show_progress_bar=False, batch_size=8)
     
     # ChromaDB 구축
     chroma_client = chromadb.Client()
