@@ -85,12 +85,12 @@ def build_knowledge_base():
     ]
     
     LANGUAGE_MAP = {
-        "pig_manual_korean.pdf": ("ko", "한국어", "양돈 사양관리 매뉴얼 (한국어)"),
-        "pig_manual_english.pdf": ("en", "English", "Pig Raising Manual (English)"),
-        "pig_manual_vietnamese.pdf": ("vi", "Tiếng Việt", "Hướng dẫn chăn nuôi lợn (Vietnamese)"),
-        "pig_manual_thai.pdf": ("th", "ภาษาไทย", "คู่มือการเลี้ยงสุกร (Thai)"),
-        "pig_manual_khmer.pdf": ("km", "ភាសាខ្មែរ", "មគ្គុទ្ទេសក៍ចិញ្ចឹមជ្រូក (Khmer)"),
-        "pig_manual_nepali.pdf": ("ne", "नेपाली", "बंगुर पालन निर्देशिका (Nepali)"),
+        "pig_manual_korean.PDF": ("ko", "한국어", "양돈 사양관리 매뉴얼 (한국어)"),
+        "pig_manual_english.PDF": ("en", "English", "Pig Raising Manual (English)"),
+        "pig_manual_vietnamese.PDF": ("vi", "Tiếng Việt", "Hướng dẫn chăn nuôi lợn (Vietnamese)"),
+        "pig_manual_thai.PDF": ("th", "ภาษาไทย", "คู่มือการเลี้ยงสุกร (Thai)"),
+        "pig_manual_khmer.PDF": ("km", "ភាសាខ្មែរ", "មគ្គុទ្ទេសក៍ចិញ្ចឹមជ្រូក (Khmer)"),
+        "pig_manual_nepali.PDF": ("ne", "नेपाली", "बंगुर पालन निर्देशिका (Nepali)"),
     }
     
     def is_boilerplate(chunk):
