@@ -10,7 +10,7 @@ import re
 import streamlit as st
 from pathlib import Path
 
-# ===== 페이지 설정 (반드시 첫 Streamlit 명령) =====
+# ===== 페이지 설정 =====
 st.set_page_config(
     page_title="양돈 사양관리 다국어 AI 챗봇",
     page_icon="🐷",
@@ -18,21 +18,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ===== 헤더 =====
 st.title("🐷 양돈 사양관리 다국어 AI 챗봇")
 st.caption("Multilingual Pig Farming Q&A Chatbot for Foreign Workers in Korean Swine Farms")
 st.markdown("---")
 
-# ===== 세션 상태 초기화 =====
+# ===== 세션 상태 =====
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "system_ready" not in st.session_state:
     st.session_state.system_ready = False
 
-# ===== 사이드바: 안내 + API 키 =====
+# ===== 사이드바 =====
 with st.sidebar:
     st.header("⚙️ 시스템 정보")
-    
     st.markdown("""
     **지원 언어**:
     - 🇰🇷 한국어 (Korean)
@@ -42,7 +40,6 @@ with st.sidebar:
     - 🇰🇭 ភាសាខ្មែរ (Khmer)
     - 🇳🇵 नेपाली (Nepali)
     """)
-    
     st.markdown("---")
     st.markdown("""
     **사용 방법**:
@@ -50,30 +47,29 @@ with st.sidebar:
     2. AI가 매뉴얼 근거로 답변 생성
     3. 답변 하단에 출처 매뉴얼 표시
     """)
-    
     st.markdown("---")
     st.markdown("""
     **데이터 출처**:
     농촌진흥청 농업과학도서관
     『외국인 근로자를 위한 양돈 사양관리 매뉴얼』
-    (한국어·영어·베트남어·태국어·캄보디아어·네팔어)
     """)
-    
     st.markdown("---")
     st.caption("개발: 임채빈 (RDA-NIAS Swine Division)")
     st.caption("AI 아이디어톤 출품작 — 2026")
 
 
-# ===== 시스템 초기화 (캐시 활용으로 한 번만 실행) =====
+# ===== 임베딩 모델 로드 (가벼운 모델 사용) =====
 @st.cache_resource(show_spinner="🔧 임베딩 모델 로딩 중... (최초 1회 약 1~2분)")
 def load_embedding_model():
     from sentence_transformers import SentenceTransformer
-    return SentenceTransformer('paraphrase-multilingual-MiniLM-L3-v2')
+    # paraphrase-multilingual-MiniLM-L12-v2: 약 470MB, 검증된 안정 모델
+    return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 
-@st.cache_resource(show_spinner="📚 매뉴얼 처리 및 인덱싱 중... (최초 1회 약 2~3분)")
+# ===== 지식 베이스 구축 (단계별 진행 상황 표시) =====
+@st.cache_resource(show_spinner=False)
 def build_knowledge_base():
-    """PDF 추출 → 청킹 → 임베딩 → ChromaDB 구축까지 전체 파이프라인"""
+    """PDF 추출 → 청킹 → 임베딩 → ChromaDB 구축"""
     import pdfplumber
     import chromadb
     
@@ -85,7 +81,6 @@ def build_knowledge_base():
     ]
     
     LANGUAGE_MAP = {
-        "pig_manual_korean.PDF": ("ko", "한국어", "양돈 사양관리 매뉴얼 (한국어)"),
         "pig_manual_english.PDF": ("en", "English", "Pig Raising Manual (English)"),
         "pig_manual_vietnamese.PDF": ("vi", "Tiếng Việt", "Hướng dẫn chăn nuôi lợn (Vietnamese)"),
         "pig_manual_thai.PDF": ("th", "ภาษาไทย", "คู่มือการเลี้ยงสุกร (Thai)"),
@@ -97,7 +92,7 @@ def build_knowledge_base():
         matches = sum(1 for p in SKIP_PATTERNS if re.search(p, chunk, re.IGNORECASE))
         return matches >= 2
     
-    def chunk_filtered(text, size=2000, overlap=100):
+    def chunk_filtered(text, size=1200, overlap=200):
         chunks = []
         start = 0
         while start < len(text):
@@ -107,7 +102,7 @@ def build_knowledge_base():
             start += size - overlap
         return chunks
     
-    def chunk_simple(text, size=2000, overlap=100):
+    def chunk_simple(text, size=1200, overlap=200):
         chunks = []
         start = 0
         while start < len(text):
@@ -131,19 +126,31 @@ def build_knowledge_base():
                     appendix += tagged
         return body, appendix
     
-    # PDF 처리
+    # 단계별 상태 표시
+    progress_placeholder = st.empty()
+    
+    # === 1단계: PDF 처리 ===
+    progress_placeholder.info("📄 [1/4] PDF 매뉴얼 처리 중...")
+    
     manual_dir = Path("manuals")
+    if not manual_dir.exists():
+        st.error(f"⚠️ manuals 폴더를 찾을 수 없습니다: {manual_dir.absolute()}")
+        st.stop()
+    
     all_chunks = []
     all_metadatas = []
+    found_count = 0
     
     for pdf_filename, (lang_code, lang_name, display_name) in LANGUAGE_MAP.items():
         pdf_path = manual_dir / pdf_filename
         if not pdf_path.exists():
+            st.warning(f"   ⚠️ 파일 없음: {pdf_filename}")
             continue
         
+        found_count += 1
         body, appendix = extract_with_sections(str(pdf_path))
         body_chunks = chunk_filtered(body)
-        appendix_chunks = []
+        appendix_chunks = chunk_simple(appendix)
         
         for i, c in enumerate(body_chunks):
             all_chunks.append(c)
@@ -166,11 +173,24 @@ def build_knowledge_base():
                 "chunk_id": f"appendix_{i}"
             })
     
-    # 임베딩
-    embed_model = load_embedding_model()
-    embeddings = embed_model.encode(all_chunks, show_progress_bar=False, batch_size=8)
+    if found_count == 0:
+        st.error("⚠️ manuals 폴더에서 PDF 파일을 하나도 찾을 수 없습니다.")
+        st.error(f"폴더 내용: {list(manual_dir.iterdir()) if manual_dir.exists() else '폴더 없음'}")
+        st.stop()
     
-    # ChromaDB 구축
+    progress_placeholder.info(f"📄 [1/4] PDF 처리 완료: {found_count}개 매뉴얼, {len(all_chunks)}개 청크")
+    
+    # === 2단계: 임베딩 모델 로드 ===
+    progress_placeholder.info("🧠 [2/4] 임베딩 모델 로드 중... (1~2분)")
+    embed_model = load_embedding_model()
+    
+    # === 3단계: 임베딩 생성 ===
+    progress_placeholder.info(f"🔢 [3/4] {len(all_chunks)}개 청크 임베딩 변환 중... (1~3분)")
+    embeddings = embed_model.encode(all_chunks, show_progress_bar=False, batch_size=16)
+    
+    # === 4단계: ChromaDB 구축 ===
+    progress_placeholder.info("💾 [4/4] 데이터베이스 구축 중...")
+    
     chroma_client = chromadb.Client()
     try:
         chroma_client.delete_collection(name="pig_manuals")
@@ -184,6 +204,8 @@ def build_knowledge_base():
         metadatas=all_metadatas,
         ids=[f"c_{i}" for i in range(len(all_chunks))]
     )
+    
+    progress_placeholder.empty()
     
     return collection, embed_model, len(all_chunks)
 
@@ -209,7 +231,7 @@ def search_chunks_tiered(question, collection, embed_model, top_k=5):
                 merged_docs.append(doc)
                 merged_metas.append({**meta, "tier": label})
     
-    # 한국어 질문 특수 처리
+    # 한국어 질문: 모든 본문 검색
     if q_lang == "ko":
         try:
             t1 = collection.query(
@@ -236,7 +258,7 @@ def search_chunks_tiered(question, collection, embed_model, top_k=5):
             "detected_language": q_lang
         }
     
-    # 외국어: Tier 1 본문 + Tier 2 부록 + Tier 3 다국어
+    # 외국어: 같은 언어 본문 우선
     if q_lang != "unknown":
         try:
             t1 = collection.query(
@@ -270,7 +292,7 @@ def search_chunks_tiered(question, collection, embed_model, top_k=5):
     }
 
 
-# ===== 챗봇 함수 (Gemini 호출 + 재시도) =====
+# ===== 챗봇 함수 =====
 LANG_NAMES_FULL = {
     "ko": "Korean (한국어)",
     "en": "English",
@@ -298,18 +320,18 @@ def ask_chatbot(question, collection, embed_model, gemini_client, top_k=5, max_r
     
     prompt = f"""You are a professional pig farming management assistant designed to help foreign workers in Korean swine farms.
 
-# CRITICAL RULES (must follow strictly)
-1. **Language**: Respond ONLY in {q_lang_full}. Do not mix languages. Do not include Korean text unless the user's language is Korean.
-2. **Source-grounded only**: Answer ONLY using information from the provided manual excerpts below. Never invent facts or use outside knowledge.
-3. **Honesty about gaps**: If the manual excerpts do not contain enough information to answer the question, clearly state in {q_lang_full}: "The manual does not contain specific information about this. Please consult your farm manager or veterinarian." Do NOT guess.
-4. **Numerical precision**: When manuals provide specific numbers (temperature, weight, days, dosage), include those exact numbers.
-5. **Practical tone**: These are field workers who will apply the answer immediately. Be clear, concise, and actionable.
-6. **Safety priority**: For health, disease, or vaccine topics, always emphasize when professional veterinary consultation is needed.
+# CRITICAL RULES
+1. **Language**: Respond ONLY in {q_lang_full}. Do not mix languages.
+2. **Source-grounded**: Answer ONLY using the manual excerpts below. Never invent facts.
+3. **Honesty**: If excerpts don't contain enough info, say so in {q_lang_full}: "The manual does not contain specific information. Please consult your farm manager or veterinarian."
+4. **Numerical precision**: Include exact numbers (temperature, days, dosage) from manuals.
+5. **Practical tone**: Clear, concise, actionable.
+6. **Safety**: For health/disease/vaccine, emphasize professional consultation when needed.
 
 # RESPONSE FORMAT
-- Start with a direct answer (2-3 sentences)
-- Then provide step-by-step details if applicable
-- End with: "📚 Source: [list the manual filenames you used]"
+- Direct answer (2-3 sentences)
+- Step-by-step details if applicable
+- End with: "📚 Source: [manual filenames used]"
 
 # MANUAL EXCERPTS
 {context}
@@ -317,7 +339,7 @@ def ask_chatbot(question, collection, embed_model, gemini_client, top_k=5, max_r
 # USER QUESTION (in {q_lang_full})
 {question}
 
-# YOUR ANSWER (in {q_lang_full} ONLY, no Korean unless user asked in Korean):
+# YOUR ANSWER (in {q_lang_full} ONLY):
 """
     
     last_error = None
@@ -351,14 +373,13 @@ def ask_chatbot(question, collection, embed_model, gemini_client, top_k=5, max_r
 
 # ===== 메인 로직 =====
 
-# Gemini API 키 확인 (Streamlit Secrets에서 자동 로드)
+# Gemini API 키
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except (KeyError, FileNotFoundError):
     st.error("⚠️ Gemini API 키가 설정되지 않았습니다. Streamlit Secrets에 GEMINI_API_KEY를 등록해주세요.")
     st.stop()
 
-# Gemini 클라이언트 초기화
 @st.cache_resource
 def init_gemini_client(key):
     from google import genai
@@ -366,16 +387,14 @@ def init_gemini_client(key):
 
 gemini_client = init_gemini_client(api_key)
 
-# 지식 베이스 구축 (캐시됨)
+# 지식 베이스 구축
 collection, embed_model, num_chunks = build_knowledge_base()
 
-# 시스템 상태 표시
 if not st.session_state.system_ready:
     st.success(f"✅ 시스템 준비 완료: {num_chunks}개 매뉴얼 청크 인덱싱됨")
     st.session_state.system_ready = True
 
 # ===== 채팅 UI =====
-# 기존 메시지 표시
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -384,16 +403,13 @@ for msg in st.session_state.messages:
                 for src in msg["sources"]:
                     st.markdown(f"- {src}")
 
-# 사용자 입력
 prompt = st.chat_input("질문을 입력하세요 / Type your question in any supported language...")
 
 if prompt:
-    # 사용자 메시지 표시
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
-    # AI 응답 생성
     with st.chat_message("assistant"):
         with st.spinner("🔍 매뉴얼 검색 및 답변 생성 중..."):
             result = ask_chatbot(prompt, collection, embed_model, gemini_client)
@@ -407,7 +423,6 @@ if prompt:
         
         st.caption(f"🌐 감지된 언어 / Detected: {result['language']}")
     
-    # 세션 저장
     st.session_state.messages.append({
         "role": "assistant",
         "content": result["answer"],
