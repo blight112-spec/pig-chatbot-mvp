@@ -448,11 +448,16 @@ def ask_chatbot(question, collection, embed_model, gemini_client,
 # CRITICAL RULES
 1. **Language**: Respond ONLY in {q_lang_full}. Do not mix languages.
 2. **Source-grounded**: Answer using the manual excerpts below. The excerpts may be in different languages from the question — translate the relevant information into {q_lang_full} for your answer.
-3. **Honesty**: If excerpts don't contain enough info, say so in {q_lang_full}: "The manual does not contain specific information. Please consult your farm manager or veterinarian."
-4. **Numerical precision**: Include exact numbers (temperature, days, dosage) from manuals.
-5. **Practical tone**: Clear, concise, actionable.
-6. **Safety**: For health/disease/vaccine, emphasize professional consultation when needed.
-7. **Range notation**: When expressing numerical ranges (e.g., "5 to 30 minutes"), use a hyphen "-" or write out "to" instead of the tilde "~". This prevents markdown rendering issues.
+3. **Active extraction (IMPORTANT)**: The manual is converted from PDF, so tables and structured data may appear as flattened text with mixed languages, broken layouts, or pronunciation guides interleaved (e.g., Korean + English + phonetic transcription on the same line). DO NOT dismiss such excerpts as unclear. Instead:
+   - Look for numerical patterns: ranges like "X-Y", "X~Y", standalone numbers near keywords (°C, kg, week, day, age, %)
+   - Recognize multilingual labels for the same concept: "보온/warm/effective temperature/heating" all refer to thermal management; "자돈/piglet/young pig" all refer to young pigs
+   - Cross-reference multiple excerpts to build a confident answer
+   - When you find relevant numbers or guidance, present them clearly even if the source formatting was rough
+4. **Last-resort honesty**: ONLY after careful inspection of ALL excerpts, if no relevant information exists, respond in {q_lang_full}: "The manual does not contain specific information on this topic. Please consult your farm manager or veterinarian."
+5. **Numerical precision**: Include exact numbers (temperature, days, dosage) from manuals whenever available.
+6. **Practical tone**: Clear, concise, actionable.
+7. **Safety**: For health/disease/vaccine topics, emphasize professional consultation when appropriate.
+8. **Range notation**: When expressing numerical ranges (e.g., "5 to 30 minutes"), use a hyphen "-" or write out "to" instead of the tilde "~". This prevents markdown rendering issues.
 
 # RESPONSE FORMAT
 - Direct answer (2-3 sentences)
