@@ -414,7 +414,7 @@ def distance_to_similarity(distance, max_dist=20.0):
 
 
 def ask_chatbot(question, collection, embed_model, gemini_client,
-                top_k=5, max_retries=3):
+                top_k=8, max_retries=3):
     import time
 
     search_results = search_chunks(question, collection, embed_model, top_k=top_k)
