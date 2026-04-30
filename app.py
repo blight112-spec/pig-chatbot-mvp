@@ -21,6 +21,363 @@ import tempfile
 import streamlit as st
 from pathlib import Path
 
+# ============================================================
+# 질문 정규화 사전 (Question Normalization Dictionary)
+# 양돈 박사 큐레이션 — 매뉴얼 표제 47개 + 변형 표현 약 480개
+# 외국인 근로자가 매뉴얼 정확 표현이 아닌 일상 표현으로 질문해도
+# 매뉴얼 핵심 표제로 자동 매핑하여 검색 정확도를 높임
+# ============================================================
+
+QUESTION_NORMALIZATION = {
+    # ===== 카테고리 A: 일상 운영 관리 =====
+    "농장 하루 일과": [
+        "하루 일과", "오전 업무", "오후 업무", "일과 시작",
+        "농장 작업 시간", "데일리 스케줄", "daily schedule",
+        "day at a farm", "오전 7시 업무", "일과 종료"
+    ],
+    "농장 주간관리": [
+        "주간 작업", "요일별 업무", "주간 스케줄", "주간 단위 작업",
+        "월요일 업무", "표준화된 작업", "주별 관리",
+        "weekly management", "weekly schedule", "weekly plan"
+    ],
+    "사양 프로그램": [
+        "사료 단계", "성장 단계별 사료", "주령별 사료", "일령별 사료",
+        "사료 1호 2호 3호", "젖돈사료", "육성돈사료", "비육돈사료",
+        "feed program", "feed by stage", "feed programme",
+        "어떤 사료를 줘야", "사료 종류"
+    ],
+    "모돈 사료급여 프로그램": [
+        "모돈 사료", "어미돼지 사료", "임신돈 사료량", "포유돈 사료량",
+        "모돈 급여량", "후보돈 사료", "BCS 사료",
+        "sow feed", "feed for sows", "lactating sow feed"
+    ],
+    "일상관리": [
+        "매일 해야 할 일", "일일 점검", "데일리 체크", "매일 점검",
+        "일과 중 관리", "기본 사양관리", "기본 관리",
+        "day-to-day", "daily care", "basic maintenance"
+    ],
+
+    # ===== 카테고리 B: 분만 관리 =====
+    "분만 징후 관찰": [
+        "분만 임박", "출산 징후", "분만 신호", "새끼 낳기 전",
+        "분만 예정 일주일 전", "외음부 부어오름", "유즙 나옴",
+        "signs of labor", "predicted farrowing", "before delivery",
+        "임박한 분만", "출산 사인"
+    ],
+    "분만 준비": [
+        "출산 준비", "새끼 낳을 준비", "분만 전 준비",
+        "보온등 준비", "분만사 준비", "분만 전 점검",
+        "preparation for delivery", "before farrowing",
+        "출산 직전 준비", "분만틀 준비"
+    ],
+    "분만 시작": [
+        "출산 시작", "새끼가 나오기 시작", "양수 터짐", "양수 파수",
+        "분만 시 온도", "분만사 온도", "분만 시작 시간",
+        "onset of labor", "labor begins", "amniotic rupture"
+    ],
+    "분만 관리": [
+        "출산 시 처치", "분만 직후", "새끼 받기", "분만 시 작업",
+        "분만 처치", "분만 시 관리", "양수 제거",
+        "delivery management", "labor treatment",
+        "새끼 나왔을 때", "분만 후 처치"
+    ],
+    "초유 급여": [
+        "초유 먹이기", "콜로스트럼", "분만 후 첫 젖", "면역획득 젖",
+        "12시간 이내 초유", "허약자돈 초유", "초유 짜주기",
+        "colostrum feed", "colostrum feeding", "first milk",
+        "출생 직후 젖"
+    ],
+    "분할 포유": [
+        "허약자돈 보호", "약한 자돈 분리", "보온상자 활용", "교대 포유",
+        "유두 차지 못하는 자돈", "강한 자돈 분리",
+        "split lactation", "weaker piglet care",
+        "허약 자돈 포유"
+    ],
+    "탯줄 제거": [
+        "탯줄 자르기", "탯줄 처치", "탯줄 묶기", "탯줄 소독",
+        "엄빌리컬 코드", "배꼽 처치", "탯줄 길이",
+        "umbilical cord removal", "cord cut",
+        "탯줄 어떻게"
+    ],
+    "난산 관리": [
+        "난산", "출산이 잘 안됨", "분만이 오래 걸림", "분만 간격 30분 이상",
+        "분만 응급", "옥시토신 주사", "난산 처치", "난산 응급",
+        "dystocia", "difficult labor", "labor intervention",
+        "출산이 길어짐", "어미돼지 출산 곤란"
+    ],
+
+    # ===== 카테고리 C: 자돈 처치 =====
+    "견치(송곳니) 제거": [
+        "송곳니 자르기", "이빨 자르기", "견치 자르기", "캐나인 제거",
+        "송곳니 절단", "견치기 사용", "이빨 처치",
+        "canine teeth removal", "teeth clipping",
+        "자돈 이빨"
+    ],
+    "비강 분무": [
+        "코 약품", "비강 약제", "AR 예방", "위축성 비염 예방",
+        "코로 약 넣기", "네이절 스프레이",
+        "nasal spray", "AR prevention",
+        "비강내 주입"
+    ],
+    "꼬리 자르기": [
+        "단미", "꼬리 절단", "꼬리 컷", "꼬리 처치", "테일 컷",
+        "가스단미기", "꼬리 물기 방지",
+        "tail cutting", "tail removal", "cut tail",
+        "꼬리 짧게"
+    ],
+    "양자 보내기": [
+        "양자", "고르기", "분리이유", "자돈 옮기기", "다른 모돈에 보내기",
+        "체중별 분류", "산자수 조정", "대리모돈",
+        "adoption of piglets", "foster piglets", "surrogate sow",
+        "약한 새끼 다른 어미"
+    ],
+    "거세 실시": [
+        "거세", "고환 제거", "수컷 자돈 처치", "뉴트럴라이제이션",
+        "7일령 이내 거세", "거세 보정틀", "면도칼 거세",
+        "neutralization", "castration",
+        "수퇘지 거세"
+    ],
+    "이각": [
+        "귀 표시", "개체 표시", "이어 태깅", "귀에 자국",
+        "193법", "이각기", "자돈 식별",
+        "ear notching", "ear tagging", "piglet identification",
+        "귀 인식 표시"
+    ],
+
+    # ===== 카테고리 D: 자돈 사양·치료 =====
+    "철분 주사": [
+        "아이언 주사", "덱스트란 철", "1차 철분",
+        "2차 철분", "글렙토페론", "3일령 주사", "10일령 주사",
+        "iron injection", "iron dextran",
+        "자돈 빈혈 예방", "철분 보충"
+    ],
+    "자돈 입질사료 훈련": [
+        "입질 훈련", "자돈 사료 적응", "어린 돼지 사료 시작",
+        "고형 사료 시작", "5일령 사료", "사료 호기심", "니블링 트레이닝",
+        "nibbling training", "creep feeding",
+        "자돈 첫 사료"
+    ],
+    "자돈 백신 접종": [
+        "자돈 백신", "어린 돼지 백신", "7일령 백신", "백신 주사",
+        "백시네이션",
+        "piglet vaccination",
+        "새끼 돼지 예방주사"
+    ],
+    "자돈 설사 치료": [
+        "자돈 설사", "다이어리아", "어린 돼지 설사", "설사약",
+        "전해질 급여", "탈수 예방", "콕시듐",
+        "piglet diarrhea", "scouring",
+        "새끼 돼지 묽은 변"
+    ],
+    "허약자돈 복강 주사": [
+        "허약자돈", "약한 자돈 주사", "복강 주사", "위클링",
+        "약한 새끼 처치", "전해질 보충",
+        "weakling injection", "abdominal injection",
+        "허약한 자돈 치료"
+    ],
+
+    # ===== 카테고리 E: 이유자돈 관리 =====
+    "이유 시기": [
+        "이유", "젖떼기", "위닝", "이유 방법", "올인올아웃",
+        "이유 자돈 분류", "21일령 이유", "28일령 이유", "3주령 이유",
+        "weaning timing", "weaning method", "all-in all-out",
+        "젖떼는 시기"
+    ],
+    "이유자돈 보온": [
+        "이유 후 온도", "이유자돈 온도", "위닝 후 보온", "28도 32도",
+        "이유 후 보온등", "이유자돈 환경",
+        "weaning piglet temperature",
+        "젖뗀 자돈 온도"
+    ],
+    "이유자돈 사료 관리": [
+        "이유 후 사료", "젖뗀 자돈 사료", "이유당일 절식", "5~7회 급여",
+        "사료 제한 급여", "이유자돈 급여량", "사료 섭취량",
+        "weaning piglet feed", "feed control after weaning",
+        "이유 후 먹이"
+    ],
+    "사료 교체": [
+        "사료 바꾸기", "사료 전환", "1호 2호 교체", "교체 비율",
+        "사료 변경", "신구 사료 비율",
+        "feed change", "feed transition",
+        "사료 갈아주기"
+    ],
+    "자돈 전출 후 수세 소독": [
+        "자돈 빠진 후 청소", "전출 후 소독", "올아웃 후 수세",
+        "돈방 비운 후 소독", "7일 건조", "슬러리 제거",
+        "washing after transfer", "disinfection after all-out",
+        "돈방 청소"
+    ],
+
+    # ===== 카테고리 F: 환경 관리 =====
+    "보온 관리": [
+        "보온등", "보온상자", "히트램프", "따뜻하게 유지",
+        "추위 방지", "보온등 설치", "보온등 높이",
+        "thermostat light", "heating lamp", "warming",
+        "온도 따뜻"
+    ],
+    "온도 관리": [
+        "적정 온도", "돈사 온도", "체적 온도", "온도 유지",
+        "26도 30도", "22도 23도", "주령별 온도", "체중별 온도",
+        "temperature control", "pen temperature", "effective temperature",
+        "돼지 적온"
+    ],
+    "환기 관리": [
+        "환기", "공기 순환", "벤틸레이션", "환기량", "환기 점검",
+        "돈사 공기", "환기표",
+        "ventilation", "air circulation",
+        "환기 어떻게"
+    ],
+    "음수 관리": [
+        "물 공급", "급수", "음수", "니플", "워터컵", "물그릇",
+        "급수기", "수압", "니플 높이", "물 부족",
+        "drinking water", "water supplier", "nipple",
+        "돼지 물"
+    ],
+
+    # ===== 카테고리 G: 육성·비육돈 관리 =====
+    "육성 비육돈 일상관리": [
+        "비육돈 관리", "육성돈 관리", "비육사 관리", "그로잉 관리",
+        "피니싱 관리", "출하 전 돼지", "큰 돼지 관리",
+        "growing pig management", "finishing pig management",
+        "비육돈 일상"
+    ],
+    "사료 시기별 급여": [
+        "단계별 사료", "비육돈 사료", "육성돈 사료", "성장 시기 사료",
+        "사료비 절감", "사육단계 사료", "휴약 기간 사료",
+        "feed by breeding stage", "stage-specific feed",
+        "주령별 사료"
+    ],
+    "폐사율 관리 기록": [
+        "폐사", "죽은 돼지", "사망 기록", "폐사두수", "기록 유지",
+        "1퍼센트 목표", "도태 기록",
+        "mortality rate", "death record",
+        "폐사 관리"
+    ],
+
+    # ===== 카테고리 H: 출하 관리 =====
+    "출하 전 주의사항": [
+        "출하 시 고려", "출하 시 주의", "출하 준비",
+        "출하 직전", "출하 점검", "출하할 때",
+        "출하 6시간 전", "절식",
+        "shipping considerations", "before shipping",
+        "before shipment", "withdrawal period",
+        "돼지 내보내기 전"
+    ],
+    "출하 시 주의사항": [
+        "출하 시 관리", "출하 작업", "구타 금지", "전기봉 금지",
+        "쉽먼트 시", "출하 시점",
+        "upon shipment", "shipping process",
+        "출하할 때 주의"
+    ],
+    "출하 이동로": [
+        "출하 통로", "이동통로 설치", "쉽먼트 패시지웨이",
+        "이동로 바닥", "이동로 경사", "출하 트럭",
+        "shipment passageway", "loading ramp",
+        "돼지 이동 통로"
+    ],
+
+    # ===== 카테고리 I: 웅돈 관리 =====
+    "후보 웅돈 도입": [
+        "후보 웅돈", "웅돈 입식", "5~6개월령 웅돈", "격리 사육",
+        "웅돈 적응", "웅돈 구충", "웅돈 백신",
+        "reserve boars", "boar induction",
+        "수퇘지 새로 들임"
+    ],
+    "승가 연습": [
+        "승가", "마운팅", "교배 연습", "수퇘지 훈련",
+        "6~7개월령 연습", "후보돈 활용",
+        "mounting practice",
+        "수퇘지 교배 연습"
+    ],
+    "웅돈 일반 관리": [
+        "웅돈 관리", "수퇘지 관리", "보어 관리", "웅돈 사료",
+        "웅돈 온도", "웅돈 채광", "웅돈 카드",
+        "boar management", "boar maintenance",
+        "수퇘지 사양"
+    ],
+
+    # ===== 카테고리 J: 임신돈·교배 관리 =====
+    "발정 관찰 교배 적기": [
+        "발정", "발정 체크", "에스트러스", "교배 시기", "수정 적기",
+        "발정 징후", "음부 발적", "타모돈 승가", "수퇘지 승가 허용",
+        "estrus detection", "mating timing", "mating phase",
+        "교배 타이밍"
+    ],
+    "임신 단계별 BCS": [
+        "BCS", "체평점", "바디 컨디션", "임신 초기", "임신 중기",
+        "임신 말기", "사료 급여량 조절", "임신돈 사료",
+        "body condition score", "pregnancy stage",
+        "임신돈 BCS"
+    ],
+    "정액 주입 방법": [
+        "인공수정", "AI", "정액 주입", "수정", "주입기 사용",
+        "정액 카테터", "자궁경관 삽입", "정액 역류 방지",
+        "artificial insemination", "insemination method", "AI procedure",
+        "암퇘지 수정"
+    ],
+    "분만사 입식": [
+        "임신돈 분만사 이동", "체표 소독", "분만사 전입", "분만 일주일 전",
+        "임신돈 이동", "스트레스 최소화",
+        "transfer to maternity barn", "body surface disinfection",
+        "분만사로 옮기기"
+    ],
+
+    # ===== 카테고리 K: 포유모돈 관리 =====
+    "포유모돈 사료 급여": [
+        "분만 후 사료", "포유모돈 급여량", "1kg 증량", "락테이팅 소우 사료",
+        "분만 당일 절식", "무제한 급여", "사료 섭취량 늘리기",
+        "lactating sow feed", "feed after delivery",
+        "어미 돼지 분만 후 먹이"
+    ],
+    "포유모돈 도태 판단": [
+        "모돈 도태", "어미 돼지 도태", "산자수 감소", "이상 분만",
+        "자돈 물어죽임", "8산 이상", "도태 기준",
+        "culling sows", "sow culling criteria",
+        "어미 돼지 처분"
+    ],
+
+    # ===== 카테고리 L: 이유모돈(종부대기돈) 관리 =====
+    "이유모돈 발정 관찰": [
+        "이유모돈", "종부 대기돈", "위닝 소우", "이유 후 발정",
+        "이유 후 14일", "공태 무발정", "발정 유도제",
+        "weaning sow estrus", "estrus after weaning",
+        "젖뗀 어미 발정"
+    ],
+    "이유 후 사료 무제한": [
+        "이유모돈 사료", "종부 전 사료", "위닝 소우 피드",
+        "이유 후 종부까지",
+        "unrestricted feed weaning sow",
+        "젖뗀 어미 사료"
+    ],
+
+    # ===== 카테고리 M: 주사·약품 관리 =====
+    "백신 투여 방법": [
+        "백신 투여", "백신 주사", "백신 어떻게", "백신 놓는 법",
+        "백신 접종 방법", "예방주사 투여", "예방접종 방법",
+        "백신 부위", "어디에 백신",
+        "vaccine administration", "how to vaccinate",
+        "vaccination method"
+    ],
+    "근육 주사": [
+        "근육주사", "IM 주사", "귀 뒤 주사", "목 주사", "어깨 주사",
+        "주사 부위", "주사 바늘 크기", "백신 주사 부위", "주사 위치",
+        "intravenous injection", "IM injection",
+        "근육에 주사"
+    ],
+    "피하 주사": [
+        "피하주사", "SC 주사", "옆구리 주사", "피부 아래 주사",
+        "자돈 피하 주사",
+        "subcutaneous injection", "SC injection",
+        "피부 밑 주사"
+    ],
+    "백신 약품 보관": [
+        "백신 보관", "약품 보관", "냉장고 보관", "2도 8도 보관",
+        "백신 저장", "약 보관", "유효기간", "휴약기간",
+        "vaccine storage", "drug storage", "refrigerator storage",
+        "백신 어떻게 보관"
+    ],
+}
+
 st.set_page_config(
     page_title="DonTalk — 양돈 사양관리 다국어 AI 챗봇",
     page_icon="🐷",
@@ -334,16 +691,27 @@ def build_knowledge_base():
 
 
 def search_chunks(question, collection, embed_model, top_k=5):
-    """질문 언어를 우선 검색하되, 부족하면 전체에서 보충"""
+    """
+    질문 언어를 우선 검색하되, 부족하면 전체에서 보충.
+    질문 정규화 단계를 추가하여 어휘 변형에 강건하게 매칭함.
+    """
     from langdetect import detect, DetectorFactory
     DetectorFactory.seed = 42
 
+    # ===== 1단계: 질문 정규화 =====
+    # 사용자가 매뉴얼 정확 표현이 아닌 일상 표현으로 질문해도
+    # 매뉴얼 핵심 표제로 자동 매핑하여 임베딩 검색 정확도를 높임
+    normalized_question, matched_canonicals = normalize_question(question)
+
+    # ===== 2단계: 언어 감지 (원본 질문 기준) =====
+    # 정규화 후 질문에는 한국어 표제가 추가되어 언어 감지가 왜곡될 수 있으므로
+    # 반드시 원본 질문으로 언어를 감지함
     try:
         q_lang = detect(question)
     except Exception:
         q_lang = "unknown"
 
-    q_emb = embed_model.encode([question])[0].tolist()
+    q_emb = embed_model.encode([normalized_question])[0].tolist()
     seen, merged_docs, merged_metas, merged_dists = set(), [], [], []
 
     def add(docs, metas, dists):
@@ -382,8 +750,56 @@ def search_chunks(question, collection, embed_model, top_k=5):
         "documents": [merged_docs[:top_k]],
         "metadatas": [merged_metas[:top_k]],
         "distances": [merged_dists[:top_k]],
-        "detected_language": q_lang
+        "detected_language": q_lang,
+        "matched_canonicals": matched_canonicals,
     }
+
+def normalize_question(question, normalization_dict=None):
+    """
+    사용자 질문을 매뉴얼 표제로 정규화하여 검색어를 보강함.
+    
+    동작 방식:
+    1. 사용자 질문을 소문자화
+    2. 정규화 사전을 순회하며 변형 표현이 질문에 포함되는지 검사
+    3. 매칭된 표제(canonical)를 수집
+    4. 원본 질문 + 매칭된 표제들을 공백으로 합쳐서 반환
+    
+    예시:
+        입력: "출하 시 고려해야 될 사항은?"
+        매칭: "출하 시 고려" (변형) → "출하 전 주의사항" (정규형)
+        반환: ("출하 시 고려해야 될 사항은? 출하 전 주의사항", ["출하 전 주의사항"])
+    
+    Args:
+        question (str): 사용자 원본 질문
+        normalization_dict (dict): 정규화 사전 (기본값: 전역 QUESTION_NORMALIZATION)
+    
+    Returns:
+        tuple: (보강된 질문 문자열, 매칭된 정규형 리스트)
+    """
+    if normalization_dict is None:
+        normalization_dict = QUESTION_NORMALIZATION
+    
+    matched_canonicals = []
+    question_lower = question.lower()
+    
+    for canonical, variations in normalization_dict.items():
+        # 이미 정규형이 질문에 그대로 있으면 추가 작업 불필요
+        if canonical in question:
+            continue
+        
+        # 변형 표현 중 하나라도 매칭되면 정규형을 추가
+        for variation in variations:
+            if variation.lower() in question_lower:
+                matched_canonicals.append(canonical)
+                break  # 한 표제당 한 번만 매칭하면 충분
+    
+    if matched_canonicals:
+        # 원본 질문 + 매칭된 정규형들 → 임베딩 검색에 사용될 보강 질문
+        normalized_query = f"{question} {' '.join(matched_canonicals)}"
+        return normalized_query, matched_canonicals
+    
+    # 매칭 없으면 원본 그대로
+    return question, []
 
 def safe_markdown(text):
     """
@@ -485,6 +901,7 @@ def ask_chatbot(question, collection, embed_model, gemini_client,
                 "language": q_lang_full,
                 "sources": list(set(m["source"] for m in search_results["metadatas"][0])),
                 "debug_info": debug_info,
+                "matched_canonicals": search_results.get("matched_canonicals", []),
             }
         except Exception as e:
             last_error = e
@@ -541,6 +958,9 @@ for msg in st.session_state.messages:
             with st.expander("📚 참조 매뉴얼 / Sources"):
                 for src in msg["sources"]:
                     st.markdown(f"- {src}")
+        if debug_mode and msg.get("matched_canonicals"):
+            st.info(f"🎯 정규화 매칭 표제: {', '.join(result['matched_canonicals'])}")
+        
         if debug_mode and msg.get("debug_info"):
             with st.expander("🔍 검색된 매뉴얼 청크"):
                 for info in msg["debug_info"]:
@@ -572,6 +992,14 @@ if prompt:
                 for src in result["sources"]:
                     st.markdown(f"- {src}")
 
+        if debug_mode and result.get("matched_canonicals"):
+            st.info(f"🎯 정규화 매칭 표제: {', '.join(result['matched_canonicals'])}")
+
+        if debug_mode and result.get("debug_info"):
+            with st.expander("🔍 검색된 매뉴얼 청크"):
+                for src in result["sources"]:
+                    st.markdown(f"- {src}")
+
         if debug_mode and result.get("debug_info"):
             with st.expander("🔍 검색된 매뉴얼 청크"):
                 for info in result["debug_info"]:
@@ -589,5 +1017,6 @@ if prompt:
         "role": "assistant",
         "content": result["answer"],
         "sources": result.get("sources", []),
-        "debug_info": result.get("debug_info", [])
+        "debug_info": result.get("debug_info", []),
+        "matched_canonicals": result.get("matched_canonicals", []),
     })
