@@ -2,8 +2,8 @@ name: Keep DonTalk Space Alive
 
 on:
   schedule:
-    # 12시간마다 자동 실행 (UTC 기준 0시, 12시 = 한국 9시, 21시)
-    - cron: '0 0,12 * * *'
+    # 6시간마다 자동 실행 (UTC 0,6,12,18시 = 한국 9,15,21,3시)
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     # 수동 실행 버튼
 
@@ -13,12 +13,23 @@ jobs:
     steps:
       - name: Ping HF Space to prevent sleep
         run: |
-          echo "Pinging DonTalk Space at $(date -u)"
-          response=$(curl -s -o /dev/null -w "%{http_code}" \
-            https://huggingface.co/spaces/Blight112/pig-chatbot-mvp)
-          echo "HTTP Status: $response"
-          if [ "$response" = "200" ] || [ "$response" = "302" ]; then
+          echo "Pinging DonTalk Space at $(date -u) UTC / $(TZ='Asia/Seoul' date) KST"
+          
+          # 풀 GET 요청 (헤더 + 본문, User-Agent 위장)
+          response=$(curl -sL -w "\n%{http_code}" \
+            -H "User-Agent: Mozilla/5.0 (compatible; KeepAlive/1.0)" \
+            https://huggingface.co/spaces/Blight112/pig-chatbot-mvp \
+            -o /tmp/page.html)
+          
+          http_code=$(echo "$response" | tail -n1)
+          page_size=$(wc -c < /tmp/page.html)
+          
+          echo "HTTP Status: $http_code"
+          echo "Page size: $page_size bytes"
+          
+          if [ "$http_code" = "200" ] || [ "$http_code" = "302" ]; then
             echo "✅ Space is alive"
           else
-            echo "⚠️ Unexpected status code: $response"
+            echo "⚠️ Unexpected status code: $http_code"
+            exit 1
           fi
