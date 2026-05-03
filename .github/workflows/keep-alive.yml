@@ -2,34 +2,69 @@ name: Keep DonTalk Space Alive
 
 on:
   schedule:
-    # 6시간마다 자동 실행 (UTC 0,6,12,18시 = 한국 9,15,21,3시)
+    # 6시간마다 자동 실행 (기존 12시간에서 단축)
     - cron: '0 */6 * * *'
   workflow_dispatch:
-    # 수동 실행 버튼
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping HF Space to prevent sleep
+      - name: Diagnostic info
         run: |
-          echo "Pinging DonTalk Space at $(date -u) UTC / $(TZ='Asia/Seoul' date) KST"
+          echo "=== Trigger Info ==="
+          echo "Event: ${{ github.event_name }}"
+          echo "Time UTC: $(date -u)"
+          echo "Time KST: $(TZ='Asia/Seoul' date)"
+          echo "===================="
+      
+      - name: Ping HF Space (browser-like)
+        run: |
+          echo "Pinging DonTalk Space..."
           
-          # 풀 GET 요청 (헤더 + 본문, User-Agent 위장)
-          response=$(curl -sL -w "\n%{http_code}" \
-            -H "User-Agent: Mozilla/5.0 (compatible; KeepAlive/1.0)" \
+          # 풀 GET — 헤더+본문, 리다이렉트 따라가기, User-Agent 위장
+          response=$(curl -sL --max-time 60 -w "\n%{http_code}\n%{time_total}" \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 KeepAlive" \
+            -H "Accept: text/html,application/xhtml+xml" \
             https://huggingface.co/spaces/Blight112/pig-chatbot-mvp \
             -o /tmp/page.html)
           
-          http_code=$(echo "$response" | tail -n1)
+          http_code=$(echo "$response" | tail -n2 | head -n1)
+          time_total=$(echo "$response" | tail -n1)
           page_size=$(wc -c < /tmp/page.html)
           
           echo "HTTP Status: $http_code"
-          echo "Page size: $page_size bytes"
+          echo "Response Time: ${time_total}s"
+          echo "Page Size: $page_size bytes"
+          
+          # Sleeping 상태 감지 (페이지에 "Sleeping" 문구가 있으면 경고)
+          if grep -qi "sleeping\|building" /tmp/page.html; then
+            echo "⚠️ Space appears to be in Sleeping/Building state — visit may have triggered wake-up"
+          fi
           
           if [ "$http_code" = "200" ] || [ "$http_code" = "302" ]; then
-            echo "✅ Space is alive"
+            echo "✅ Space responded with $http_code"
           else
-            echo "⚠️ Unexpected status code: $http_code"
+            echo "❌ Unexpected status: $http_code"
             exit 1
+          fi
+      
+      - name: Wait and ping again (ensure full wake)
+        run: |
+          sleep 30
+          echo "Second ping after 30s wait..."
+          
+          response=$(curl -sL --max-time 60 -w "%{http_code}" \
+            -H "User-Agent: Mozilla/5.0 KeepAlive" \
+            -o /tmp/page2.html \
+            https://huggingface.co/spaces/Blight112/pig-chatbot-mvp)
+          
+          page_size=$(wc -c < /tmp/page2.html)
+          echo "Second ping status: $response"
+          echo "Second ping page size: $page_size bytes"
+          
+          if grep -qi "sleeping" /tmp/page2.html; then
+            echo "⚠️ Still showing sleeping after 30s — Space may need more time"
+          else
+            echo "✅ Space appears fully awake"
           fi
